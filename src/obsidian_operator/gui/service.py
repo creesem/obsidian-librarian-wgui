@@ -22,14 +22,20 @@ from obsidian_operator.render import (
 )
 from obsidian_operator.repository import OperatorIndex
 from obsidian_operator.review import (
-    AttentionKind,
     active_people,
     active_projects,
     attention_items,
     build_person_workload,
     build_project_review,
 )
-from obsidian_operator.views import VIEWS, GeneratedView, build_view
+from obsidian_operator.views import (
+    VIEWS,
+    GeneratedView,
+    build_view,
+    high_severity_attention_items,
+    ticket_attention_items,
+    waiting_attention_items,
+)
 from obsidian_operator.writer import ViewWriteError, write_view
 
 
@@ -59,23 +65,21 @@ def today(vault: str | Path, *, today: date) -> dict[str, Any]:
 def tickets(vault: str | Path, *, today: date) -> dict[str, Any]:
     """Return the ticket attention items, matching the generated tickets view."""
     index = _load_index(vault)
-    items = tuple(item for item in attention_items(index, today) if item.entity_type == "ticket")
+    items = ticket_attention_items(index, today)
     return {"view": "tickets", "items": [attention_to_dict(item) for item in items]}
 
 
 def waiting(vault: str | Path, *, today: date) -> dict[str, Any]:
     """Return the waiting attention items, matching the generated waiting view."""
     index = _load_index(vault)
-    items = tuple(
-        item for item in attention_items(index, today) if item.kind == AttentionKind.WAITING.value
-    )
+    items = waiting_attention_items(index, today)
     return {"view": "waiting", "items": [attention_to_dict(item) for item in items]}
 
 
 def manager_review(vault: str | Path, *, today: date) -> dict[str, Any]:
     """Return the high-severity attention items, matching the manager review view."""
     index = _load_index(vault)
-    items = tuple(item for item in attention_items(index, today) if item.severity == "high")
+    items = high_severity_attention_items(index, today)
     return {"view": "manager-review", "items": [attention_to_dict(item) for item in items]}
 
 

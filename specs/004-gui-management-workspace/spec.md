@@ -108,9 +108,11 @@ wrong token; assert 401 both times.
 - **FR-006**: Writes MUST be confined to `<vault>/90_Staging/Views/` (or a
   contained `--out`) via the existing `write_view`; absolute paths and `..` MUST
   be refused.
-- **FR-007**: Existing view files MUST be refused unless force is set explicitly;
-  the GUI MUST set force only through an explicit, separately confirmed overwrite
-  action, never as a silent default.
+- **FR-007**: Existing view files MUST be refused unless force is set explicitly.
+  The GUI does not set force: it always sends `confirmed` with no `force`, so a
+  second render of an existing view is reported as an error rather than
+  overwritten. Overwriting is done via the CLI `--force`, which is the only actor
+  that sets force.
 - **FR-008**: Every render result MUST carry the exact equivalent
   `obsidian-operator view render` CLI command.
 - **FR-009**: A confirmed render MUST report the created/overwritten change set.

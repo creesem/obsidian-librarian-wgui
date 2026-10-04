@@ -75,7 +75,7 @@ existing operator services.
 | `entity_detail(vault, type, name, today)` | one entity + relationships + issues |
 | `view_definitions()` | view names/filenames from `VIEWS` |
 | `preview_view(vault, name, today, generated_at)` | rendered view, no write |
-| `render_view(request)` | gated write; change set or `needs_confirmation` |
+| `render_view(vault, request)` | gated write; change set or `needs_confirmation` |
 
 Safety tiers use the existing GUI vocabulary (`read-only`, `staging-write`).
 `render_view` is `staging-write` and refuses to write unless `confirmed=True`.
@@ -97,6 +97,9 @@ quiet logging, `create_server(...) -> (httpd, token, url)` for tests.
 | GET | `/api/health` | status, vault, host/port |
 | GET | `/api/overview` | counts + issues |
 | GET | `/api/today` | attention items |
+| GET | `/api/tickets` | ticket attention items |
+| GET | `/api/waiting` | waiting attention items |
+| GET | `/api/manager-review` | high-severity attention items |
 | GET | `/api/projects` | project board |
 | GET | `/api/team` | team board |
 | GET | `/api/entity` | one entity detail (`type`, `name`) |

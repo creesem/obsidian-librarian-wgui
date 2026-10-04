@@ -124,6 +124,7 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"status": "error", "message": "Not found"}, HTTPStatus.NOT_FOUND)
             return
         if not self._authorized():
+            self._drain_body()
             self._send_json({"status": "error", "message": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
             return
         try:
@@ -158,6 +159,17 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             raise ValueError("JSON payload must be an object")
         return payload
+
+    def _drain_body(self) -> None:
+        """Read and discard any request body before an early response.
+
+        Sending a response without consuming a declared body makes the client
+        abort the connection on some platforms (notably Windows), which the
+        server would otherwise observe as a spurious socket error.
+        """
+        length = int(self.headers.get("Content-Length") or "0")
+        if length > 0:
+            self.rfile.read(length)
 
     def _render_index(self) -> str:
         html = INDEX_FILE.read_text(encoding="utf-8")

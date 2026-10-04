@@ -126,20 +126,35 @@ def _build_team(index: OperatorIndex, today: date) -> ViewBody:
     return ViewBody(render_team_review(workloads), _unique(paths))
 
 
+def ticket_attention_items(index: OperatorIndex, today: date) -> tuple[AttentionItem, ...]:
+    """Return ticket attention items, shared by the tickets view and the GUI."""
+    return tuple(item for item in attention_items(index, today) if item.entity_type == "ticket")
+
+
+def waiting_attention_items(index: OperatorIndex, today: date) -> tuple[AttentionItem, ...]:
+    """Return waiting attention items, shared by the waiting view and the GUI."""
+    return tuple(
+        item for item in attention_items(index, today) if item.kind == AttentionKind.WAITING.value
+    )
+
+
+def high_severity_attention_items(index: OperatorIndex, today: date) -> tuple[AttentionItem, ...]:
+    """Return high-severity attention items, shared by the manager view and the GUI."""
+    return tuple(item for item in attention_items(index, today) if item.severity == "high")
+
+
 def _build_tickets(index: OperatorIndex, today: date) -> ViewBody:
-    items = tuple(item for item in attention_items(index, today) if item.entity_type == "ticket")
+    items = ticket_attention_items(index, today)
     return ViewBody(render_attention("Tickets Needing Attention", items), _attention_sources(items))
 
 
 def _build_waiting(index: OperatorIndex, today: date) -> ViewBody:
-    items = tuple(
-        item for item in attention_items(index, today) if item.kind == AttentionKind.WAITING.value
-    )
+    items = waiting_attention_items(index, today)
     return ViewBody(render_attention("Waiting on Others", items), _attention_sources(items))
 
 
 def _build_manager_review(index: OperatorIndex, today: date) -> ViewBody:
-    items = tuple(item for item in attention_items(index, today) if item.severity == "high")
+    items = high_severity_attention_items(index, today)
     return ViewBody(render_attention("Manager Review", items), _attention_sources(items))
 
 
