@@ -6,6 +6,9 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 TAG_RE = re.compile(r"(?:^|\s)#([A-Za-z0-9_/-]+)")
@@ -44,6 +47,7 @@ class IndexRecord:
     promoted_from: str | None = None
     promoted_at: str | None = None
     aliases: list[str] = field(default_factory=list)
+    frontmatter_typed: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -105,6 +109,7 @@ def build_index(vault_root: str | Path, scope: str) -> IndexSummary:
                 promoted_from=frontmatter.get("promoted_from"),
                 promoted_at=frontmatter.get("promoted_at"),
                 aliases=list(extract_aliases(frontmatter)),
+                frontmatter_typed=read_frontmatter_typed(content),
             )
         )
 
@@ -172,6 +177,26 @@ def extract_frontmatter(content: str) -> dict[str, str]:
 
 def frontmatter_text(content: str) -> str:
     return split_frontmatter(content)[0]
+
+
+def read_frontmatter_typed(content: str) -> dict[str, Any]:
+    """Return frontmatter as a YAML-faithful mapping.
+
+    Unlike :func:`extract_frontmatter`, this preserves block/flow lists and nested
+    mappings so callers can rely on real YAML types. Returns an empty mapping when
+    the note has no well-formed frontmatter or the block is not valid YAML. This
+    function never raises; malformed input yields ``{}``.
+    """
+    frontmatter = frontmatter_text(content)
+    if not frontmatter:
+        return {}
+    try:
+        parsed = yaml.safe_load(frontmatter)
+    except yaml.YAMLError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return parsed
 
 
 def split_frontmatter(content: str) -> tuple[str, str]:
