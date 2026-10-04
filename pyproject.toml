@@ -40,6 +40,7 @@ obsidian-librarian = "obsidian_librarian.cli:main"
 obsidian-patron = "obsidian_patron.cli:main"
 obsidian-librarian-gui = "obsidian_librarian.gui.server:main"
 obsidian-operator = "obsidian_operator.cli:main"
+obsidian-operator-gui = "obsidian_operator.gui.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
