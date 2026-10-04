@@ -79,3 +79,39 @@ def test_view_write_does_not_touch_canonical_notes(
     }
     for path, value in canonical_before.items():
         assert canonical_after[path] == value
+
+
+def test_gui_read_session_writes_nothing(tmp_path: Path) -> None:
+    import json
+    import threading
+    import urllib.request
+
+    from obsidian_operator.gui.server import create_server
+
+    vault = tmp_path / "vault"
+    shutil.copytree(FIXTURE, vault)
+    before = _snapshot(vault)
+
+    httpd, token, url = create_server("127.0.0.1", 0, vault)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        for route in ["/api/overview", "/api/today", "/api/projects", "/api/team", "/api/views"]:
+            req = urllib.request.Request(f"{url}{route}")
+            req.add_header("X-Gui-Token", token)
+            with urllib.request.urlopen(req, timeout=5) as response:
+                json.loads(response.read().decode("utf-8"))
+        req = urllib.request.Request(
+            f"{url}/api/view/preview",
+            data=json.dumps({"name": "today"}).encode("utf-8"),
+        )
+        req.add_header("X-Gui-Token", token)
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            json.loads(response.read().decode("utf-8"))
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+    assert _snapshot(vault) == before

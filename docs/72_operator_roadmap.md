@@ -102,7 +102,7 @@ staging-first writer under `<vault>/90_Staging/Views/`; tests in
 
 ---
 
-## Phase 4 — GUI management workspace
+## Phase 4 — GUI management workspace *(implemented)*
 
 **Deliverables**
 
@@ -115,6 +115,14 @@ staging-first writer under `<vault>/90_Staging/Views/`; tests in
 
 **Exit criteria:** GUI actions show their equivalent CLI command; write actions
 require explicit confirmation; read-only actions run directly.
+
+**Delivered:** `obsidian_operator/gui/{service,server}.py` and the self-contained
+`static/index.html`; a tokenized `ThreadingHTTPServer` exposing read endpoints
+(`/api/health`, `/api/overview`, `/api/today`, `/api/projects`, `/api/team`,
+`/api/entity`, `/api/views`), a no-write `/api/view/preview`, and a gated
+`/api/view/render` behind explicit confirmation; boundary and no-write coverage
+in `tests/test_operator_gui_import_boundary.py` and
+`tests/test_operator_no_writes.py`.
 
 ---
 
