@@ -159,10 +159,6 @@ def _equivalent_cli(names: list[str], vault: str, out: str | None, force: bool) 
     return subprocess.list2cmdline(argv)
 
 
-def _view_to_buildable(name: str, index: OperatorIndex, today: date, generated_at: str):
-    return build_view(name, index, today=today, generated_at=generated_at)
-
-
 def preview_view(
     vault: str | Path,
     *,
@@ -186,15 +182,20 @@ def render_view(request: dict[str, Any]) -> dict[str, Any]:
     force = bool(request.get("force"))
     confirmed = bool(request.get("confirmed"))
 
+    raw_name = request.get("name")
+    all_views = bool(request.get("all_views"))
+    out_value = out if isinstance(out, str) else None
+    requested = list(VIEWS) if all_views else [raw_name if isinstance(raw_name, str) else ""]
+    command = _equivalent_cli(requested, str(vault), out_value, force)
+
     try:
-        names = _view_names(request.get("name"), bool(request.get("all_views")))
-        command = _equivalent_cli(names, str(vault), out if isinstance(out, str) else None, force)
+        names = _view_names(raw_name, all_views)
     except ValueError as exc:
         return {
             "status": "error",
             "executed": False,
             "safety_tier": STAGING_WRITE,
-            "equivalent_cli": "",
+            "equivalent_cli": command,
             "message": str(exc),
             "change_set": [],
         }
@@ -211,7 +212,7 @@ def render_view(request: dict[str, Any]) -> dict[str, Any]:
     try:
         today = _resolve_today(request.get("today"))
         generated_at = _resolve_generated_at(request.get("generated_at"))
-        views_root = _resolve_views_root(vault, out if isinstance(out, str) else None)
+        views_root = _resolve_views_root(vault, out_value)
         index = _load_index(vault)
         views: list[GeneratedView] = [
             build_view(name, index, today=today, generated_at=generated_at) for name in names
@@ -233,7 +234,7 @@ def render_view(request: dict[str, Any]) -> dict[str, Any]:
         except (ViewWriteError, FileExistsError, OSError) as exc:
             return {
                 "status": "error",
-                "executed": False,
+                "executed": bool(change_set),
                 "safety_tier": STAGING_WRITE,
                 "equivalent_cli": command,
                 "message": str(exc),

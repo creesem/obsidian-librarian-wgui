@@ -125,11 +125,7 @@ def test_render_unconfirmed_writes_nothing(tmp_path: Path) -> None:
 
 def test_render_confirmed_writes_only_views(tmp_path: Path) -> None:
     vault = _copy_vault(tmp_path)
-    canonical_before = {
-        path: content
-        for path, content in _snapshot(vault).items()
-        if not path.startswith("90_Staging")
-    }
+    before = _snapshot(vault)
     result = render_view(
         {
             "vault": str(vault),
@@ -142,13 +138,52 @@ def test_render_confirmed_writes_only_views(tmp_path: Path) -> None:
     assert result["status"] == "ok"
     assert len(result["change_set"]) == 6
     assert all(entry["created"] for entry in result["change_set"])
-    assert (vault / "90_Staging" / "Views" / "Today.md").exists()
-    canonical_after = {
-        path: content
-        for path, content in _snapshot(vault).items()
-        if not path.startswith("90_Staging")
+    after = _snapshot(vault)
+    assert set(after) - set(before) == {
+        "90_Staging/Views/Today.md",
+        "90_Staging/Views/Projects.md",
+        "90_Staging/Views/Team.md",
+        "90_Staging/Views/Tickets Needing Attention.md",
+        "90_Staging/Views/Waiting on Others.md",
+        "90_Staging/Views/Manager Review.md",
     }
-    assert canonical_after == canonical_before
+    assert {path: after[path] for path in before} == before
+
+
+def test_render_invalid_name_error_carries_cli(tmp_path: Path) -> None:
+    vault = _copy_vault(tmp_path)
+    result = render_view(
+        {
+            "vault": str(vault),
+            "name": "nope",
+            "today": "2026-10-10",
+            "confirmed": True,
+        }
+    )
+    assert result["status"] == "error"
+    assert result["executed"] is False
+    assert "obsidian-operator" in result["equivalent_cli"]
+    assert "nope" in result["equivalent_cli"]
+
+
+def test_render_partial_write_reports_executed(tmp_path: Path) -> None:
+    vault = _copy_vault(tmp_path)
+    views_root = vault / "90_Staging" / "Views"
+    views_root.mkdir(parents=True)
+    (views_root / "Projects.md").write_text("stale", encoding="utf-8")
+    result = render_view(
+        {
+            "vault": str(vault),
+            "all_views": True,
+            "today": "2026-10-10",
+            "generated_at": "2026-10-03T12:00:00+00:00",
+            "confirmed": True,
+        }
+    )
+    assert result["status"] == "error"
+    assert result["executed"] is True
+    assert [entry["view"] for entry in result["change_set"]] == ["today"]
+    assert (views_root / "Today.md").exists()
 
 
 def test_render_second_run_without_force_errors(tmp_path: Path) -> None:
