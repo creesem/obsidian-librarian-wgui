@@ -81,6 +81,22 @@ def test_token_gate_and_read_routes(tmp_path: Path) -> None:
         thread.join(timeout=5)
 
 
+def test_index_html_served(tmp_path: Path) -> None:
+    vault = _copy_vault(tmp_path)
+    httpd, _token, url, thread = _serve(vault)
+    try:
+        request = urllib.request.Request(f"{url}/")
+        with urllib.request.urlopen(request, timeout=5) as response:
+            assert response.status == 200
+            html = response.read().decode("utf-8")
+        assert "obsidian-operator" in html
+        assert "__GUI_BOOTSTRAP__" not in html
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+
 def test_preview_and_gated_render_routes(tmp_path: Path) -> None:
     vault = _copy_vault(tmp_path)
     httpd, token, url, thread = _serve(vault)

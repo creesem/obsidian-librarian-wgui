@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="application-name" content="obsidian-operator">
+<title>Obsidian Operator</title>
+<style>
+  :root { --bg:#12141a; --panel:#1b1e27; --line:#2b3140; --ink:#e6e9f0; --muted:#9aa3b2; --accent:#6ea8fe; --warn:#f2b34b; --err:#f27e7e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:var(--bg); color:var(--ink); }
+  header { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; }
+  header h1 { font-size:15px; margin:0; }
+  header .meta { color:var(--muted); font-size:12px; }
+  main { display:grid; grid-template-columns: 200px 1fr; min-height: calc(100vh - 49px); }
+  nav { border-right:1px solid var(--line); padding:12px; }
+  nav button { display:block; width:100%; text-align:left; background:none; border:1px solid transparent; color:var(--ink); padding:7px 9px; border-radius:6px; cursor:pointer; font:inherit; }
+  nav button.active, nav button:hover { background:var(--panel); border-color:var(--line); }
+  section#workspace { padding:16px; }
+  h2 { font-size:14px; margin:0 0 12px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:12px; }
+  pre { background:#0e1015; border:1px solid var(--line); border-radius:6px; padding:10px; overflow:auto; max-height:340px; }
+  .issues .error { color:var(--err); }
+  .issues .warning { color:var(--warn); }
+  button.action { background:var(--accent); color:#0b0d12; border:0; border-radius:6px; padding:7px 12px; cursor:pointer; font:inherit; }
+  .muted { color:var(--muted); }
+  #confirm { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; }
+  #confirm.open { display:flex; }
+  #confirm .box { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; width:min(560px, 90vw); }
+  #confirm-command { font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Obsidian Operator</h1>
+  <span class="meta" id="vault-display"></span>
+</header>
+<main>
+  <nav id="nav"></nav>
+  <section id="workspace"></section>
+</main>
+<div id="confirm">
+  <div class="box">
+    <h2 id="confirm-title">Confirm</h2>
+    <p id="confirm-message" class="muted"></p>
+    <h2>Equivalent CLI</h2>
+    <pre id="confirm-command"></pre>
+    <button class="action" id="cancel-confirm">Cancel</button>
+    <button class="action" id="approve-confirm">Approve</button>
+  </div>
+</div>
+<script>
+const BOOTSTRAP = __GUI_BOOTSTRAP__;
+const SECTIONS = ["Today","Projects","Team","Tickets","Waiting","Manager Review","Views"];
+let current = "Today";
+let pending = null;
+
+const nav = document.getElementById("nav");
+const workspace = document.getElementById("workspace");
+document.getElementById("vault-display").textContent = BOOTSTRAP.defaultVault;
+
+function api(path, options = {}) {
+  const headers = Object.assign({"X-Gui-Token": BOOTSTRAP.token}, options.headers || {});
+  if (options.body) headers["Content-Type"] = "application/json";
+  return fetch(BOOTSTRAP.serverUrl + path, Object.assign({}, options, {headers}))
+    .then(r => r.json());
+}
+
+function renderNav() {
+  nav.innerHTML = "";
+  for (const name of SECTIONS) {
+    const b = document.createElement("button");
+    b.textContent = name;
+    if (name === current) b.className = "active";
+    b.onclick = () => { current = name; renderNav(); renderSection(); };
+    nav.appendChild(b);
+  }
+}
+
+function block(title, obj) {
+  const panel = document.createElement("div");
+  panel.className = "panel";
+  const h = document.createElement("h2");
+  h.textContent = title;
+  const pre = document.createElement("pre");
+  pre.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+  panel.append(h, pre);
+  return panel;
+}
+
+async function renderSection() {
+  workspace.innerHTML = "";
+  if (current === "Views") return renderViews();
+  if (current === "Tickets" || current === "Waiting" || current === "Manager Review") {
+    const data = await api("/api/today");
+    const items = (data.items || []).filter(it => {
+      if (current === "Tickets") return it.entity_type === "ticket";
+      if (current === "Waiting") return it.kind === "waiting";
+      return it.severity === "high";
+    });
+    workspace.appendChild(block(current, items));
+    return;
+  }
+  const path = {"Today": "/api/today", "Projects": "/api/projects", "Team": "/api/team"}[current];
+  const data = await api(path);
+  workspace.appendChild(block(current, data));
+}
+
+async function renderViews() {
+  const defs = await api("/api/views");
+  const list = block("Views", defs.views);
+  workspace.appendChild(list);
+  for (const view of defs.views) {
+    const panel = document.createElement("div");
+    panel.className = "panel";
+    const h = document.createElement("h2");
+    h.textContent = view.title + " (" + view.filename + ")";
+    const previewBtn = document.createElement("button");
+    previewBtn.className = "action";
+    previewBtn.textContent = "Preview";
+    const out = document.createElement("pre");
+    previewBtn.onclick = async () => {
+      const res = await api("/api/view/preview", {method:"POST", body: JSON.stringify({name: view.name})});
+      out.textContent = res.markdown || JSON.stringify(res, null, 2);
+    };
+    panel.append(h, previewBtn, out);
+    workspace.appendChild(panel);
+  }
+  const gen = document.createElement("button");
+  gen.className = "action";
+  gen.textContent = "Generate views";
+  gen.id = "generate";
+  gen.onclick = () => confirmRender();
+  const report = document.createElement("div");
+  report.className = "panel";
+  report.id = "change-set";
+  report.innerHTML = "<h2>Change Set</h2><pre class=\"muted\">(none)</pre>";
+  workspace.append(gen, report);
+}
+
+function confirmRender() {
+  api("/api/view/render", {method:"POST", body: JSON.stringify({all_views:true, confirmed:false})})
+    .then(res => {
+      pending = res.equivalent_cli;
+      document.getElementById("confirm-message").textContent =
+        "This writes generated views under 90_Staging/Views/. No canonical note is touched.";
+      document.getElementById("confirm-command").textContent = pending;
+      document.getElementById("confirm").classList.add("open");
+    });
+}
+
+document.getElementById("cancel-confirm").onclick = () => {
+  document.getElementById("confirm").classList.remove("open");
+  pending = null;
+};
+document.getElementById("approve-confirm").onclick = async () => {
+  document.getElementById("confirm").classList.remove("open");
+  const res = await api("/api/view/render", {method:"POST", body: JSON.stringify({all_views:true, confirmed:true})});
+  const target = document.getElementById("change-set");
+  const pre = document.createElement("pre");
+  pre.textContent = JSON.stringify({change_set: res.change_set, equivalent_cli: res.equivalent_cli}, null, 2);
+  target.innerHTML = "<h2>Change Set</h2>";
+  target.appendChild(pre);
+};
+
+renderNav();
+renderSection();
+</script>
+</body>
+</html>

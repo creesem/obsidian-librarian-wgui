@@ -19,6 +19,7 @@ dependencies = [
 [tool.setuptools.package-data]
 obsidian_patron = ["config/*.yaml"]
 obsidian_librarian = ["gui/static/*.html"]
+obsidian_operator = ["gui/static/*.html"]
 
 [project.optional-dependencies]
 dev = [
