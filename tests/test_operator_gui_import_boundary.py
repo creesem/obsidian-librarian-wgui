@@ -13,7 +13,7 @@ _FORBIDDEN = ("obsidian_librarian", "obsidian_patron")
 
 def test_gui_sources_do_not_reference_binary_packages() -> None:
     package_dir = Path(obsidian_operator.gui.__file__).parent
-    for source in package_dir.glob("*.py"):
+    for source in package_dir.rglob("*.py"):
         text = source.read_text(encoding="utf-8")
         for forbidden in _FORBIDDEN:
             assert forbidden not in text, f"{source.name} references {forbidden}"

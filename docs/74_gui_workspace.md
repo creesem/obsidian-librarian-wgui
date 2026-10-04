@@ -118,6 +118,9 @@ Nav renders the seven sections. Read sections display the corresponding
 endpoint's data deterministically. The Views section lists the six views,
 previews any view, and offers "Generate views", which routes through the
 confirmation modal and then shows the returned change set and equivalent CLI.
+Tickets, Waiting, and Manager Review each fetch their own endpoint
+(`/api/tickets`, `/api/waiting`, `/api/manager-review`); the frontend filters
+nothing itself.
 
 ---
 
@@ -128,8 +131,10 @@ confirmation modal and then shows the returned change set and equivalent CLI.
 - Target: `<vault>/90_Staging/Views/` (or a contained `--out`).
 - Confirmation is mandatory: an unconfirmed render writes nothing.
 - No canonical note is created, moved, modified, or deleted.
-- Existing files are refused unless `force=True`, which the UI sets only through
-  an explicit, confirmed overwrite.
+- Existing files are refused unless `force=True`. The GUI never sets `force`: it
+  always sends `confirmed:true` with no `force`, so a second "Generate views"
+  returns `error: already exists`. Regeneration after the first run is done via
+  the CLI `--force`. `force` is set only by the CLI, never by the UI.
 
 ---
 

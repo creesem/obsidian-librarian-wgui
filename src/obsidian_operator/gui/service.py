@@ -22,6 +22,7 @@ from obsidian_operator.render import (
 )
 from obsidian_operator.repository import OperatorIndex
 from obsidian_operator.review import (
+    AttentionKind,
     active_people,
     active_projects,
     attention_items,
@@ -53,6 +54,29 @@ def today(vault: str | Path, *, today: date) -> dict[str, Any]:
     index = _load_index(vault)
     items = attention_items(index, today)
     return {"view": "today", "items": [attention_to_dict(item) for item in items]}
+
+
+def tickets(vault: str | Path, *, today: date) -> dict[str, Any]:
+    """Return the ticket attention items, matching the generated tickets view."""
+    index = _load_index(vault)
+    items = tuple(item for item in attention_items(index, today) if item.entity_type == "ticket")
+    return {"view": "tickets", "items": [attention_to_dict(item) for item in items]}
+
+
+def waiting(vault: str | Path, *, today: date) -> dict[str, Any]:
+    """Return the waiting attention items, matching the generated waiting view."""
+    index = _load_index(vault)
+    items = tuple(
+        item for item in attention_items(index, today) if item.kind == AttentionKind.WAITING.value
+    )
+    return {"view": "waiting", "items": [attention_to_dict(item) for item in items]}
+
+
+def manager_review(vault: str | Path, *, today: date) -> dict[str, Any]:
+    """Return the high-severity attention items, matching the manager review view."""
+    index = _load_index(vault)
+    items = tuple(item for item in attention_items(index, today) if item.severity == "high")
+    return {"view": "manager-review", "items": [attention_to_dict(item) for item in items]}
 
 
 def project_board(vault: str | Path, *, today: date) -> dict[str, Any]:
@@ -145,7 +169,14 @@ def _resolve_views_root(vault: Path, out: str | None) -> Path:
     return resolved
 
 
-def _equivalent_cli(names: list[str], vault: str, out: str | None, force: bool) -> str:
+def _equivalent_cli(
+    names: list[str],
+    vault: str,
+    out: str | None,
+    force: bool,
+    today: str | None,
+    generated_at: str | None,
+) -> str:
     argv = ["obsidian-operator", "view", "render"]
     if len(names) == len(VIEWS):
         argv.append("--all")
@@ -156,6 +187,10 @@ def _equivalent_cli(names: list[str], vault: str, out: str | None, force: bool) 
         argv.extend(["--out", out])
     if force:
         argv.append("--force")
+    if today:
+        argv.extend(["--today", today])
+    if generated_at:
+        argv.extend(["--generated-at", generated_at])
     return subprocess.list2cmdline(argv)
 
 
@@ -174,10 +209,13 @@ def preview_view(
     return {"view": name, "markdown": view.to_markdown()}
 
 
-def render_view(request: dict[str, Any]) -> dict[str, Any]:
-    """Write views through the contained writer, gated by confirmation."""
-    vault_value = str(request.get("vault") or ".")
-    vault = Path(vault_value).expanduser()
+def render_view(vault: str | Path, request: dict[str, Any]) -> dict[str, Any]:
+    """Write views through the contained writer, gated by confirmation.
+
+    ``vault`` is supplied by the caller — the server passes its pinned vault —
+    so the request payload can never name the write root.
+    """
+    vault_path = Path(vault).expanduser()
     out = request.get("out")
     force = bool(request.get("force"))
     confirmed = bool(request.get("confirmed"))
@@ -186,7 +224,16 @@ def render_view(request: dict[str, Any]) -> dict[str, Any]:
     all_views = bool(request.get("all_views"))
     out_value = out if isinstance(out, str) else None
     requested = list(VIEWS) if all_views else [raw_name if isinstance(raw_name, str) else ""]
-    command = _equivalent_cli(requested, str(vault), out_value, force)
+    today_value = request.get("today")
+    generated_at_value = request.get("generated_at")
+    command = _equivalent_cli(
+        requested,
+        str(vault_path),
+        out_value,
+        force,
+        today_value if isinstance(today_value, str) else None,
+        generated_at_value if isinstance(generated_at_value, str) else None,
+    )
 
     try:
         names = _view_names(raw_name, all_views)
@@ -210,10 +257,12 @@ def render_view(request: dict[str, Any]) -> dict[str, Any]:
         }
 
     try:
-        today = _resolve_today(request.get("today"))
-        generated_at = _resolve_generated_at(request.get("generated_at"))
-        views_root = _resolve_views_root(vault, out_value)
-        index = _load_index(vault)
+        today = _resolve_today(str(today_value) if today_value else None)
+        generated_at = _resolve_generated_at(
+            str(generated_at_value) if generated_at_value else None
+        )
+        views_root = _resolve_views_root(vault_path, out_value)
+        index = _load_index(vault_path)
         views: list[GeneratedView] = [
             build_view(name, index, today=today, generated_at=generated_at) for name in names
         ]
@@ -230,7 +279,7 @@ def render_view(request: dict[str, Any]) -> dict[str, Any]:
     change_set: list[dict[str, Any]] = []
     for view in views:
         try:
-            result = write_view(views_root, vault, view, force=force)
+            result = write_view(views_root, vault_path, view, force=force)
         except (ViewWriteError, FileExistsError, OSError) as exc:
             return {
                 "status": "error",

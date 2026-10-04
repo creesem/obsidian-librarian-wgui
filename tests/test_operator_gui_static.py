@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-HTML = Path("src/obsidian_operator/gui/static/index.html").read_text(encoding="utf-8")
+HTML = (
+    Path(__file__).parent.parent / "src" / "obsidian_operator" / "gui" / "static" / "index.html"
+).read_text(encoding="utf-8")
 
 
 def test_static_shell_has_required_sections() -> None:

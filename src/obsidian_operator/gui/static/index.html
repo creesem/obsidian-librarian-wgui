@@ -63,7 +63,14 @@ function api(path, options = {}) {
   const headers = Object.assign({"X-Gui-Token": BOOTSTRAP.token}, options.headers || {});
   if (options.body) headers["Content-Type"] = "application/json";
   return fetch(BOOTSTRAP.serverUrl + path, Object.assign({}, options, {headers}))
-    .then(r => r.json());
+    .then(async r => {
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || (data && data.status === "error")) {
+        const message = (data && (data.message || data.error)) || r.status + " " + r.statusText;
+        throw new Error(message);
+      }
+      return data;
+    });
 }
 
 function renderNav() {
@@ -91,17 +98,14 @@ function block(title, obj) {
 async function renderSection() {
   workspace.innerHTML = "";
   if (current === "Views") return renderViews();
-  if (current === "Tickets" || current === "Waiting" || current === "Manager Review") {
-    const data = await api("/api/today");
-    const items = (data.items || []).filter(it => {
-      if (current === "Tickets") return it.entity_type === "ticket";
-      if (current === "Waiting") return it.kind === "waiting";
-      return it.severity === "high";
-    });
-    workspace.appendChild(block(current, items));
-    return;
-  }
-  const path = {"Today": "/api/today", "Projects": "/api/projects", "Team": "/api/team"}[current];
+  const path = {
+    "Today": "/api/today",
+    "Projects": "/api/projects",
+    "Team": "/api/team",
+    "Tickets": "/api/tickets",
+    "Waiting": "/api/waiting",
+    "Manager Review": "/api/manager-review",
+  }[current];
   const data = await api(path);
   workspace.appendChild(block(current, data));
 }
@@ -120,8 +124,12 @@ async function renderViews() {
     previewBtn.textContent = "Preview";
     const out = document.createElement("pre");
     previewBtn.onclick = async () => {
-      const res = await api("/api/view/preview", {method:"POST", body: JSON.stringify({name: view.name})});
-      out.textContent = res.markdown || JSON.stringify(res, null, 2);
+      try {
+        const res = await api("/api/view/preview", {method:"POST", body: JSON.stringify({name: view.name})});
+        out.textContent = res.markdown || JSON.stringify(res, null, 2);
+      } catch (err) {
+        out.textContent = "Error: " + err.message;
+      }
     };
     panel.append(h, previewBtn, out);
     workspace.appendChild(panel);
@@ -146,6 +154,11 @@ function confirmRender() {
         "This writes generated views under 90_Staging/Views/. No canonical note is touched.";
       document.getElementById("confirm-command").textContent = pending;
       document.getElementById("confirm").classList.add("open");
+    })
+    .catch(err => {
+      const target = document.getElementById("change-set");
+      target.innerHTML = "<h2>Change Set</h2><pre class=\"error\"></pre>";
+      target.querySelector("pre").textContent = "Error: " + err.message;
     });
 }
 
@@ -155,12 +168,18 @@ document.getElementById("cancel-confirm").onclick = () => {
 };
 document.getElementById("approve-confirm").onclick = async () => {
   document.getElementById("confirm").classList.remove("open");
-  const res = await api("/api/view/render", {method:"POST", body: JSON.stringify({all_views:true, confirmed:true})});
-  const target = document.getElementById("change-set");
-  const pre = document.createElement("pre");
-  pre.textContent = JSON.stringify({change_set: res.change_set, equivalent_cli: res.equivalent_cli}, null, 2);
-  target.innerHTML = "<h2>Change Set</h2>";
-  target.appendChild(pre);
+  try {
+    const res = await api("/api/view/render", {method:"POST", body: JSON.stringify({all_views:true, confirmed:true})});
+    const target = document.getElementById("change-set");
+    const pre = document.createElement("pre");
+    pre.textContent = JSON.stringify({change_set: res.change_set, equivalent_cli: res.equivalent_cli}, null, 2);
+    target.innerHTML = "<h2>Change Set</h2>";
+    target.appendChild(pre);
+  } catch (err) {
+    const target = document.getElementById("change-set");
+    target.innerHTML = "<h2>Change Set</h2><pre class=\"error\"></pre>";
+    target.querySelector("pre").textContent = "Error: " + err.message;
+  }
 };
 
 renderNav();

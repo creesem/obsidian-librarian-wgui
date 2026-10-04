@@ -14,15 +14,19 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from obsidian_operator import __version__
-from obsidian_operator.dates import parse_iso_date
 from obsidian_operator.gui.service import (
+    _resolve_generated_at,
+    _resolve_today,
     entity_detail,
+    manager_review,
     overview,
     preview_view,
     project_board,
     render_view,
     team_board,
+    tickets,
     view_definitions,
+    waiting,
 )
 from obsidian_operator.gui.service import (
     today as today_view,
@@ -79,6 +83,17 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
             if path == "/api/today":
                 self._send_json({"status": "ok", **today_view(self.server.vault, today=reference)})
                 return
+            if path == "/api/tickets":
+                self._send_json({"status": "ok", **tickets(self.server.vault, today=reference)})
+                return
+            if path == "/api/waiting":
+                self._send_json({"status": "ok", **waiting(self.server.vault, today=reference)})
+                return
+            if path == "/api/manager-review":
+                self._send_json(
+                    {"status": "ok", **manager_review(self.server.vault, today=reference)}
+                )
+                return
             if path == "/api/projects":
                 self._send_json(
                     {"status": "ok", **project_board(self.server.vault, today=reference)}
@@ -98,7 +113,7 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
                 )
                 self._send_json({"status": "ok", **detail})
                 return
-        except (ValueError, FileNotFoundError, NotADirectoryError) as exc:
+        except (ValueError, OSError) as exc:
             self._send_json({"status": "error", "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         self._send_json({"status": "error", "message": "Not found"}, HTTPStatus.NOT_FOUND)
@@ -125,11 +140,9 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"status": "ok", **result})
                 return
             if path == "/api/view/render":
-                request = dict(payload)
-                request.setdefault("vault", str(self.server.vault))
-                self._send_json(render_view(request))
+                self._send_json(render_view(self.server.vault, dict(payload)))
                 return
-        except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
+        except (ValueError, OSError) as exc:
             self._send_json({"status": "error", "message": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         self._send_json({"status": "error", "message": "Not found"}, HTTPStatus.NOT_FOUND)
@@ -178,34 +191,17 @@ def _first(query: dict[str, list[str]], key: str) -> str:
 
 
 def _reference_date(query: dict[str, list[str]]) -> date:
-    value = _first(query, "today")
-    if not value:
-        return date.today()
-    parsed = parse_iso_date(value)
-    if parsed is None:
-        raise ValueError(f"invalid today date: {value}")
-    return parsed.date()
+    return _resolve_today(_first(query, "today") or None)
 
 
 def _reference_date_from_payload(payload: dict[str, Any]) -> date:
     value = payload.get("today")
-    if not value:
-        return date.today()
-    parsed = parse_iso_date(str(value))
-    if parsed is None:
-        raise ValueError(f"invalid today date: {value}")
-    return parsed.date()
+    return _resolve_today(str(value) if value else None)
 
 
 def _generated_at(payload: dict[str, Any]) -> str:
-    from datetime import UTC, datetime
-
     value = payload.get("generated_at")
-    if not value:
-        return datetime.now(UTC).isoformat()
-    if parse_iso_date(str(value)) is None:
-        raise ValueError(f"invalid generated_at timestamp: {value}")
-    return str(value)
+    return _resolve_generated_at(str(value) if value else None)
 
 
 def create_server(

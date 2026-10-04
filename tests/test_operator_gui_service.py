@@ -10,13 +10,16 @@ import pytest
 
 from obsidian_operator.gui.service import (
     entity_detail,
+    manager_review,
     overview,
     preview_view,
     project_board,
     render_view,
     team_board,
+    tickets,
     today,
     view_definitions,
+    waiting,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "operator_vault"
@@ -38,6 +41,30 @@ def test_today_returns_attention_items() -> None:
     assert {"kind", "severity", "title", "path"} <= set(payload["items"][0])
 
 
+def test_tickets_returns_ticket_attention_items() -> None:
+    payload = tickets(FIXTURE, today=TODAY)
+    assert payload["view"] == "tickets"
+    assert payload["items"]
+    assert all(item["entity_type"] == "ticket" for item in payload["items"])
+    assert len(payload["items"]) == 4
+
+
+def test_waiting_returns_waiting_attention_items() -> None:
+    payload = waiting(FIXTURE, today=TODAY)
+    assert payload["view"] == "waiting"
+    assert payload["items"]
+    assert all(item["kind"] == "waiting" for item in payload["items"])
+    assert len(payload["items"]) == 3
+
+
+def test_manager_review_returns_high_severity_items() -> None:
+    payload = manager_review(FIXTURE, today=TODAY)
+    assert payload["view"] == "manager-review"
+    assert payload["items"]
+    assert all(item["severity"] == "high" for item in payload["items"])
+    assert len(payload["items"]) == 2
+
+
 def test_project_board_lists_active_projects() -> None:
     payload = project_board(FIXTURE, today=TODAY)
     assert payload["view"] == "projects"
@@ -57,7 +84,9 @@ def test_entity_detail_includes_relationships() -> None:
         FIXTURE, entity_type="project", name="CareLogic Automation", today=TODAY
     )
     assert payload["entity"]["title"] == "CareLogic Automation"
-    assert "tickets" in payload["relationships"]
+    relationships = payload["relationships"]
+    assert set(relationships) == {"people", "projects", "tickets", "actions", "meetings"}
+    assert all(isinstance(values, list) for values in relationships.values())
 
 
 def test_entity_detail_unknown_raises() -> None:
@@ -114,7 +143,8 @@ def test_render_unconfirmed_writes_nothing(tmp_path: Path) -> None:
     vault = _copy_vault(tmp_path)
     before = _snapshot(vault)
     result = render_view(
-        {"vault": str(vault), "all_views": True, "today": "2026-10-10", "confirmed": False}
+        vault,
+        {"all_views": True, "today": "2026-10-10", "confirmed": False},
     )
     assert result["status"] == "needs_confirmation"
     assert result["executed"] is False
@@ -127,13 +157,13 @@ def test_render_confirmed_writes_only_views(tmp_path: Path) -> None:
     vault = _copy_vault(tmp_path)
     before = _snapshot(vault)
     result = render_view(
+        vault,
         {
-            "vault": str(vault),
             "all_views": True,
             "today": "2026-10-10",
             "generated_at": "2026-10-03T12:00:00+00:00",
             "confirmed": True,
-        }
+        },
     )
     assert result["status"] == "ok"
     assert len(result["change_set"]) == 6
@@ -153,12 +183,12 @@ def test_render_confirmed_writes_only_views(tmp_path: Path) -> None:
 def test_render_invalid_name_error_carries_cli(tmp_path: Path) -> None:
     vault = _copy_vault(tmp_path)
     result = render_view(
+        vault,
         {
-            "vault": str(vault),
             "name": "nope",
             "today": "2026-10-10",
             "confirmed": True,
-        }
+        },
     )
     assert result["status"] == "error"
     assert result["executed"] is False
@@ -172,13 +202,13 @@ def test_render_partial_write_reports_executed(tmp_path: Path) -> None:
     views_root.mkdir(parents=True)
     (views_root / "Projects.md").write_text("stale", encoding="utf-8")
     result = render_view(
+        vault,
         {
-            "vault": str(vault),
             "all_views": True,
             "today": "2026-10-10",
             "generated_at": "2026-10-03T12:00:00+00:00",
             "confirmed": True,
-        }
+        },
     )
     assert result["status"] == "error"
     assert result["executed"] is True
@@ -189,14 +219,13 @@ def test_render_partial_write_reports_executed(tmp_path: Path) -> None:
 def test_render_second_run_without_force_errors(tmp_path: Path) -> None:
     vault = _copy_vault(tmp_path)
     request = {
-        "vault": str(vault),
         "name": "today",
         "today": "2026-10-10",
         "generated_at": "2026-10-03T12:00:00+00:00",
         "confirmed": True,
     }
-    render_view(request)
-    second = render_view(request)
+    render_view(vault, request)
+    second = render_view(vault, request)
     assert second["status"] == "error"
     assert "already exists" in second["message"]
 
@@ -204,38 +233,75 @@ def test_render_second_run_without_force_errors(tmp_path: Path) -> None:
 def test_render_force_overwrites(tmp_path: Path) -> None:
     vault = _copy_vault(tmp_path)
     render_view(
+        vault,
         {
-            "vault": str(vault),
             "name": "today",
             "today": "2026-10-10",
             "generated_at": "2026-10-03T12:00:00+00:00",
             "confirmed": True,
-        }
+        },
     )
     second = render_view(
+        vault,
         {
-            "vault": str(vault),
             "name": "today",
             "today": "2026-10-10",
             "generated_at": "2026-10-03T12:00:00+00:00",
             "confirmed": True,
             "force": True,
-        }
+        },
     )
     assert second["status"] == "ok"
     assert second["change_set"][0]["overwritten"] is True
 
 
+def test_render_equivalent_cli_pins_today_and_generated_at(tmp_path: Path) -> None:
+    vault = _copy_vault(tmp_path)
+    result = render_view(
+        vault,
+        {
+            "all_views": True,
+            "today": "2026-10-10",
+            "generated_at": "2026-10-03T12:00:00+00:00",
+            "confirmed": False,
+        },
+    )
+    assert result["status"] == "needs_confirmation"
+    assert result["equivalent_cli"] == (
+        "obsidian-operator view render --all --write "
+        f"--vault {vault} --today 2026-10-10 --generated-at 2026-10-03T12:00:00+00:00"
+    )
+
+
+def test_render_payload_vault_is_ignored(tmp_path: Path) -> None:
+    vault = _copy_vault(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    result = render_view(
+        vault,
+        {
+            "vault": str(other),
+            "name": "today",
+            "today": "2026-10-10",
+            "generated_at": "2026-10-03T12:00:00+00:00",
+            "confirmed": True,
+        },
+    )
+    assert result["status"] == "ok"
+    assert (vault / "90_Staging" / "Views" / "Today.md").exists()
+    assert not (other / "90_Staging").exists()
+
+
 def test_render_out_escape_is_error(tmp_path: Path) -> None:
     vault = _copy_vault(tmp_path)
     result = render_view(
+        vault,
         {
-            "vault": str(vault),
             "name": "today",
             "out": "../escape",
             "today": "2026-10-10",
             "confirmed": True,
-        }
+        },
     )
     assert result["status"] == "error"
     assert not (tmp_path / "escape").exists()

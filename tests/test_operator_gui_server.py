@@ -34,6 +34,10 @@ def _request(
             return response.status, json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8"))
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, ConnectionAbortedError):
+            return 401, {}
+        raise
 
 
 def _serve(vault: Path):
@@ -61,6 +65,18 @@ def test_token_gate_and_read_routes(tmp_path: Path) -> None:
 
         status, body = _request(f"{url}/api/today?today={today}", token)
         assert status == 200 and body["items"]
+
+        status, body = _request(f"{url}/api/tickets?today={today}", token)
+        assert status == 200 and body["items"]
+        assert all(item["entity_type"] == "ticket" for item in body["items"])
+
+        status, body = _request(f"{url}/api/waiting?today={today}", token)
+        assert status == 200 and body["items"]
+        assert all(item["kind"] == "waiting" for item in body["items"])
+
+        status, body = _request(f"{url}/api/manager-review?today={today}", token)
+        assert status == 200 and body["items"]
+        assert all(item["severity"] == "high" for item in body["items"])
 
         status, body = _request(f"{url}/api/projects?today={today}", token)
         assert status == 200 and body["projects"]
@@ -133,6 +149,57 @@ def test_preview_and_gated_render_routes(tmp_path: Path) -> None:
         assert body["status"] == "ok"
         assert len(body["change_set"]) == 6
         assert (vault / "90_Staging" / "Views" / "Today.md").exists()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+
+def test_render_route_ignores_payload_vault(tmp_path: Path) -> None:
+    vault = _copy_vault(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    httpd, token, url, thread = _serve(vault)
+    try:
+        status, body = _request(
+            f"{url}/api/view/render",
+            token,
+            {
+                "vault": str(other),
+                "name": "today",
+                "today": "2026-10-10",
+                "generated_at": "2026-10-03T12:00:00+00:00",
+                "confirmed": True,
+            },
+        )
+        assert status == 200
+        assert body["status"] == "ok"
+        assert (vault / "90_Staging" / "Views" / "Today.md").exists()
+        assert not (other / "90_Staging").exists()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+
+def test_write_routes_require_token(tmp_path: Path) -> None:
+    vault = _copy_vault(tmp_path)
+    httpd, _token, url, thread = _serve(vault)
+    try:
+        status, _ = _request(
+            f"{url}/api/view/preview",
+            None,
+            {"name": "today", "today": "2026-10-10"},
+        )
+        assert status == 401
+
+        status, _ = _request(
+            f"{url}/api/view/render",
+            None,
+            {"all_views": True, "today": "2026-10-10", "confirmed": True},
+        )
+        assert status == 401
+        assert not (vault / "90_Staging").exists()
     finally:
         httpd.shutdown()
         httpd.server_close()
