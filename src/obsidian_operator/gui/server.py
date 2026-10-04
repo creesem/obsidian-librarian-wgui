@@ -149,7 +149,8 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
         self._send_json({"status": "error", "message": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def _authorized(self) -> bool:
-        return self.headers.get("X-Gui-Token") == self.server.token
+        provided = self.headers.get("X-Gui-Token") or ""
+        return secrets.compare_digest(provided, self.server.token)
 
     def _read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length") or "0")
